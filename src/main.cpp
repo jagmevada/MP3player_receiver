@@ -1,124 +1,117 @@
 #include <Arduino.h>
 
-/*
-  PPM-like RX on Arduino Nano, pin 2 (INT0).
-
-  Update per your spec:
-  - SYNC detection: use LOW width (falling -> rising). Accept 32–36 ms.
-  - Bit decoding after sync: use HIGH width (rising -> falling) only.
-      * >800 us => bit 1
-      * <350 us => bit 0
-      * otherwise invalid -> reset to sync search
-  - 32 bits must arrive within 35 ms from sync rising; otherwise reset.
-*/
-
+// -------- Config --------
 static const uint8_t RX_PIN = 2; // INT0 on Nano
 
-// Thresholds (microseconds)
-static const unsigned long SYNC_MIN_US   = 33000UL;
-static const unsigned long SYNC_MAX_US   = 37000UL;
-static const unsigned long BIT_1_MIN_US  = 801UL;   // HIGH >800us => 1
-static const unsigned long BIT_0_MAX_US  = 500UL;   // HIGH <350us => 0
-static const unsigned long FRAME_TIMEOUT = 35000UL; // from sync rising
+// Time thresholds (µs)
+static const unsigned long SYNC_MIN_US   = 32000UL;
+static const unsigned long SYNC_MAX_US   = 36000UL;
+static const unsigned long BIT_0_MAX_US  = 400UL;   // HIGH < 350us => 0
+static const unsigned long BIT_1_MIN_US  = 801UL;   // HIGH > 800us => 1
+static const unsigned long FRAME_TIMEOUT = 36000UL; // from SYNC rising
 
-// Optional noise reject for absurdly long highs during frame
-static const unsigned long NOISE_HIGH_REJECT_MIN_US = 5000UL;
+// Optional: treat absurdly long HIGH during frame as noise
+static const unsigned long NOISE_HIGH_REJECT_US = 1500UL;
 
-volatile unsigned long lastFallUs = 0;
-volatile unsigned long lastRiseUs = 0;
-volatile unsigned long syncStartUs = 0;
-
+// -------- State (ISR-touched) --------
 volatile bool inSync = false;
-volatile uint8_t bitCount = 0;
+volatile uint8_t  bitCount = 0;
 volatile uint32_t frameData = 0;
 volatile bool frameReady = false;
 
-// Forward decls
-void ISR_FALLING();
-void ISR_RISING();
-
-inline void resetSyncSearchUnsafe_() {
+volatile unsigned long lastRiseUs = 0;
+volatile unsigned long lastFallUs = 0;
+volatile unsigned long syncStartUs = 0;
+volatile uint8_t lastLevel = LOW;
+volatile uint8_t level;
+volatile unsigned long nowUs;
+volatile unsigned long lowWidthUs;
+volatile unsigned long highWidthUs;
+// -------- Helpers --------
+inline void resetSyncUnsafe_() {
   inSync = false;
   bitCount = 0;
   frameData = 0;
-  syncStartUs = 0;
+  syncStartUs = micros();
 }
 
-void ISR_FALLING() {
-  const unsigned long nowUs = micros();
-  lastFallUs = nowUs;
+// CHANGE ISR: decides rising vs falling by reading current level
+void ISR_CHANGE() {
+  nowUs = micros();
+  level = digitalRead(RX_PIN); // cheap enough at these rates
 
-  if (inSync) {
-    // Decode bit from HIGH width (rising -> falling)
-    // (Timeout first)
-    if ((nowUs - syncStartUs) > FRAME_TIMEOUT) {
-      resetSyncSearchUnsafe_();
+  // Rising edge: LOW -> HIGH
+  if (level == HIGH && lastLevel == LOW) {
+    lastRiseUs = nowUs;
+
+    // LOW-width just ended: check for SYNC only when not inSync
+    lowWidthUs = nowUs - lastFallUs;
+    if (!inSync) {
+      if (lowWidthUs >= SYNC_MIN_US && lowWidthUs <= SYNC_MAX_US) {
+        // SYNC acquired at this rising; bits start in subsequent HIGH interval(s)
+        inSync = true;
+        bitCount = 0;
+        frameData = 0;
+        syncStartUs = nowUs;
+      }
     } else {
-      const unsigned long highWidthUs = nowUs - lastRiseUs;
+      // While in frame, still enforce overall timeout
+      if ((nowUs - syncStartUs) > FRAME_TIMEOUT) {
+        resetSyncUnsafe_();
+      }
+    }
+  }
 
-      // Optional: reject absurd highs during frame that aren't valid (helps with idle/noise)
-      if (highWidthUs >= NOISE_HIGH_REJECT_MIN_US) {
-        resetSyncSearchUnsafe_();
+  // Falling edge: HIGH -> LOW
+  else if (level == LOW && lastLevel == HIGH) {
+    lastFallUs = nowUs;
+
+    // HIGH-width ended: decode a bit if we're in a frame
+    if (inSync) {
+      // Check timeout first
+      if ((nowUs - syncStartUs) > FRAME_TIMEOUT) {
+        resetSyncUnsafe_();
       } else {
-        // Classify bit by HIGH width
-        if (highWidthUs > BIT_1_MIN_US) {
-          frameData = (frameData << 1) | 1UL; // bit = 1
-          bitCount++;
-        } else if (highWidthUs < BIT_0_MAX_US) {
-          frameData = (frameData << 1);       // bit = 0
-          bitCount++;
-        } else {
-          // Invalid width band
-          // resetSyncSearchUnsafe_();
-        }
+        highWidthUs = nowUs - lastRiseUs;
 
-        // Completed 32 bits?
-        if (inSync && bitCount >= 32) {
-          frameReady = true;
-          inSync = false; // ready for next frame
+        // Optional noise bail-out (protects against idle garbage)
+        if (highWidthUs >= NOISE_HIGH_REJECT_US) {
+          resetSyncUnsafe_();
+        } else {
+          // Classify bit
+          if (highWidthUs > BIT_1_MIN_US) {
+            frameData = (frameData << 1) | 1UL; // 1
+          } else if (highWidthUs < BIT_0_MAX_US) {
+            frameData = (frameData << 1);       // 0
+          } else {
+            // Invalid band => reset
+            // resetSyncUnsafe_();
+          }
+          bitCount++;  
+          // Completed 32 bits?
+          if (inSync && bitCount >= 31) {
+            frameData = (frameData << 1); // final 0 bit
+            frameReady = true;
+            inSync = false; // ready for next frame
+          }
         }
       }
     }
   }
 
-  // After FALLING, we want to look for the next RISING
-  attachInterrupt(digitalPinToInterrupt(RX_PIN), ISR_RISING, RISING);
-}
-
-void ISR_RISING() {
-  const unsigned long nowUs = micros();
-  lastRiseUs = nowUs;
-
-  // Measure LOW width (falling -> rising) for SYNC detection
-  const unsigned long lowWidthUs = nowUs - lastFallUs;
-
-  if (!inSync) {
-    if (lowWidthUs >= SYNC_MIN_US && lowWidthUs <= SYNC_MAX_US) {
-      // SYNC acquired at this rising; bits start now (HIGH span after this rising)
-      inSync = true;
-      bitCount = 0;
-      frameData = 0;
-      syncStartUs = nowUs;
-    }
-    // else: keep searching
-  } else {
-    // Already in sync: rising simply starts the next HIGH; decoding happens on next FALLING
-    // Still enforce overall timeout window
-    if ((nowUs - syncStartUs) > FRAME_TIMEOUT) {
-      resetSyncSearchUnsafe_();
-    }
-  }
-
-  // After RISING, wait for next FALLING to end the HIGH and decode the bit
-  attachInterrupt(digitalPinToInterrupt(RX_PIN), ISR_FALLING, FALLING);
+  lastLevel = level;
 }
 
 void setup() {
   Serial.begin(115200);
-  pinMode(RX_PIN, INPUT); // Use external pull resistor suitable for your receiver
-  resetSyncSearchUnsafe_();
-  attachInterrupt(digitalPinToInterrupt(RX_PIN), ISR_FALLING, FALLING); // start by catching a falling edge
-  Serial.println(F("PPM-like RX started"));
+  pinMode(RX_PIN, INPUT);         // set pull-ups/downs per your RX module
+  lastLevel = digitalRead(RX_PIN);
+  unsigned long t = micros();
+  lastRiseUs = t;
+  lastFallUs = t;
+
+  attachInterrupt(digitalPinToInterrupt(RX_PIN), ISR_CHANGE, CHANGE);
+  Serial.println(F("Ready"));
 }
 
 void loop() {
@@ -131,9 +124,10 @@ void loop() {
     Serial.print(F("Frame: 0x"));
     Serial.print(data, HEX);
     Serial.print(F("  (bin: "));
-    for (int i = 31; i >= 0; --i) {
-      Serial.print((data >> i) & 1U);
-    }
+    for (int i = 31; i >= 0; --i) Serial.print((data >> i) & 1U);
     Serial.println(F(")"));
   }
+//   if(inSync) {
+// Serial.print(F("."));
+//   }
 }
