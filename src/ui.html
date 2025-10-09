@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arati Player</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #2e2e2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100vw;
+      overflow-x: hidden;
+    }
+    .container {
+      width: 100%;
+      max-width: 480px;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+    h2, h3 {
+      text-align: center;
+      color: white;
+      font-weight: normal;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+      max-height: 50vh; /* or more if needed */
+      overflow-y: auto;
+    }
+    li {
+      background: #90caf9;
+      color: #000;
+      padding: 12px 20px;
+      margin: 8px 0;
+      border-radius: 30px;
+      text-align: center;
+      width: 100%;
+      box-sizing: border-box;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    li:hover {
+      background: #64b5f6;
+    }
+    .seekbar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      color: white;
+      min-width: 40px;
+      text-align: center;
+      overflow: hidden;
+    }
+    .seekbar input[type=range] {
+      flex: 1;
+    }
+    #nowPlaying {
+      margin: 0.5rem 0;
+      text-align: center;
+      color: white;
+      font-weight: normal;
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 1rem 0;
+    }
+    .file-label {
+      padding: 8px 16px;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      background-color: #ccc;
+      color: #000;
+      cursor: pointer;
+    }
+    #pauseButton {
+      width: 120px;
+      height: 60px;
+      font-size: 22px;
+      font-weight: bold;
+      border: none;
+      border-radius: 30px;
+      color: white;
+      background-color: #F44336;
+      cursor: pointer;
+    }
+    #uploadForm {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-top: 1rem;
+    }
+    #uploadForm input[type="file"] {
+      flex: 1;
+      max-width: 65%;
+    }
+    #uploadForm button {
+      padding: 8px 16px;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      background-color: #ccc;
+      color: #000;
+      cursor: pointer;
+    }
+    #uploadProgress {
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+    #uploadStatus {
+      color: white;
+      text-align: center;
+      margin-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Arati Player</h2>
+
+    <div class="controls">
+      <button id="pauseButton" onclick="pause()">PLAY</button>
+    </div>
+
+    <div id="nowPlaying">Now Playing: None</div>
+
+    <div class="seekbar">
+      <span id="curtime">0:00</span>
+      <input type="range" id="seek" value="0" min="0" max="100" step="1" onchange="seekTo(this.value)">
+      <span id="duration">0:00</span>
+    </div>
+
+    <h3>Available Tracks</h3>
+    <ul id="fileList"></ul>
+
+  <form id="uploadForm" enctype="multipart/form-data">
+    <label for="fileInput" class="file-label">Choose File</label>
+    <span id="fileName" style="color: white;">No file chosen</span>
+    <input type="file" id="fileInput" name="file" accept=".mp3,.html" required style="display: none;">
+    <button type="submit">Upload</button>
+  </form>
+
+    <progress id="uploadProgress" value="0" max="100" style="display: none;"></progress>
+    <div id="uploadStatus"></div>
+  </div>
+
+  <script>
+    let currentFile = "";
+
+    function loadFiles() {
+      fetch("/files.json")
+        .then(res => {
+          if (!res.ok) throw new Error("Offline fallback");
+          return res.json();
+        })
+        .then(files => displayFiles(files))
+        .catch(() => {
+          displayFiles(["arati1.mp3", "peace_song.mp3", "prayer_morning.mp3", "om_chanting.mp3"]);
+        });
+    }
+
+    function displayFiles(files) {
+      const list = document.getElementById("fileList");
+      list.innerHTML = "";
+      files.forEach(file => {
+        const li = document.createElement("li");
+        li.textContent = file;
+
+        let pressTimer;
+        li.addEventListener('mousedown', startTimer);
+        li.addEventListener('touchstart', startTimer);
+        li.addEventListener('mouseup', cancelTimer);
+        li.addEventListener('mouseleave', cancelTimer);
+        li.addEventListener('touchend', cancelTimer);
+
+        function startTimer() {
+          pressTimer = setTimeout(() => {
+            const action = prompt(`Manage "${file}":\nType "delete" to delete\nType "rename" to rename`);
+
+            if (action === "delete") {
+              const pass = prompt("Enter password to delete:");
+              if (pass === "0000") {
+                fetch('/delete?file=' + encodeURIComponent(file), { method: 'DELETE' })
+                  .then(res => {
+                    if (res.ok) loadFiles();
+                    else alert("Failed to delete");
+                  });
+              } else {
+                alert("Incorrect password. File not deleted.");
+              }
+
+            } else if (action === "rename") {
+              const pass = prompt("Enter password to rename:");
+              if (pass !== "0000") {
+                alert("Incorrect password. Rename canceled.");
+                return;
+              }
+
+              const newName = prompt("Enter new file name (with .mp3):", file);
+              if (!newName || newName === file) return;
+
+              fetch('/rename?from=' + encodeURIComponent(file) + '&to=' + encodeURIComponent(newName), { method: 'POST' })
+                .then(res => {
+                  if (res.ok) loadFiles();
+                  else alert("Rename failed.");
+                });
+            }
+          }, 2000);
+
+        }
+        function cancelTimer() {
+          clearTimeout(pressTimer);
+        }
+        li.addEventListener('click', () => play(file));
+        list.appendChild(li);
+      });
+    }
+
+    function play(file) {
+      fetch("/play?file=" + encodeURIComponent(file))
+        .then(() => {
+          currentFile = file;
+          document.getElementById("nowPlaying").textContent = file;
+        });
+    }
+
+    function pause() {
+      fetch("/pause");
+    }
+
+    function seekTo(sec) {
+      fetch("/seek?position=" + sec);
+    }
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    function updateStatus() {
+      fetch('/status.json')
+        .then(res => res.json())
+        .then(data => {
+          const pos = data.position || 0;
+          const dur = data.duration || 0;
+          document.getElementById('curtime').textContent = formatTime(pos);
+          document.getElementById('duration').textContent = formatTime(dur);
+          document.getElementById('seek').max = dur;
+          document.getElementById('seek').value = pos;
+
+          const status = data.running ? "Playing" : "Paused";
+          document.getElementById("nowPlaying").textContent =
+            status + ": " + (data.filename || "None");
+
+          const btn = document.getElementById("pauseButton");
+          if (data.running) {
+            btn.style.backgroundColor = "#4CAF50";
+            btn.textContent = "PAUSE";
+          } else {
+            btn.style.backgroundColor = "#F44336";
+            btn.textContent = "PLAY";
+          }
+        })
+        .catch(err => console.error("Status fetch error:", err));
+    }
+
+    document.getElementById('uploadForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const fileInput = this.querySelector('input[type="file"]');
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/upload", true);
+
+      const progressBar = document.getElementById("uploadProgress");
+      const statusText = document.getElementById("uploadStatus");
+      progressBar.style.display = "block";
+      progressBar.value = 0;
+      statusText.textContent = `Uploading ${file.name}...`;
+
+      xhr.upload.onprogress = function (event) {
+        if (event.lengthComputable) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          progressBar.value = percent;
+          statusText.textContent = `Uploading ${file.name}: ${percent}%`;
+        }
+      };
+
+      xhr.onload = function () {
+        if (xhr.status === 200) {
+          statusText.textContent = "Upload complete!";
+          fileInput.value = "";
+          loadFiles();
+          if (file.name === "ui.html") setTimeout(() => location.reload(), 1000);
+        } else {
+          statusText.textContent = "Upload failed!";
+        }
+        setTimeout(() => {
+          progressBar.style.display = "none";
+          statusText.textContent = "";
+        }, 3000);
+      };
+
+      xhr.onerror = function () {
+        statusText.textContent = "Upload error!";
+      };
+
+      xhr.send(formData);
+    });
+
+document.getElementById("fileInput").addEventListener("change", function () {
+  const nameSpan = document.getElementById("fileName");
+  if (this.files.length > 0) {
+    nameSpan.textContent = this.files[0].name;
+  } else {
+    nameSpan.textContent = "No file chosen";
+  }
+});
+
+    loadFiles();
+    setInterval(updateStatus, 1000);
+  </script>
+</body>
+</html>
