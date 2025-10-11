@@ -16,9 +16,21 @@ static const unsigned long BIT_0_MAX_US  = 400UL;   // HIGH < 350us => 0
 static const unsigned long BIT_1_MIN_US  = 801UL;   // HIGH > 800us => 1
 static const unsigned long FRAME_TIMEOUT = 36000UL; // from SYNC rising
 
-const uint32_t  KEY3   = 0xb00b000c;    
-const uint32_t  KEY2   = 0xa00a0000;     
-const uint32_t  KEY1   = 0xc0acfffc;   
+// const uint32_t  KEY2   = 0xa0a0a0a0;     
+// const uint32_t  KEY3   = 0xb0b0b0b0;    
+// const uint32_t  KEY1   = 0xc0c0c0c0;   
+
+// const uint32_t  KEY2   = 0xa5a5a5a0;     
+// const uint32_t  KEY3   = 0xb5b5b5b0;    
+// const uint32_t  KEY1   = 0xc5c5c5c0; 
+
+// const uint32_t  KEY2   = 0x696969a0;     
+// const uint32_t  KEY3   = 0x7a7a7a70;    
+// const uint32_t  KEY1   = 0x8b8b8b80; 
+
+const uint32_t  KEY2   = 0x30303030;     
+const uint32_t  KEY3   = 0x41414140;    
+const uint32_t  KEY1   = 0x52525250;   
 
 // Optional: treat absurdly long HIGH during frame as noise
 static const unsigned long NOISE_HIGH_REJECT_US = 1500UL;
@@ -65,7 +77,7 @@ volatile unsigned long lastInterruptTime[3] = {0, 0, 0};
 #define I2S_LRC  10//12
 
 // === Wi-Fi AP Credentials ===
-const char* ssid = "MP3Player";
+const char* ssid = "MP3Player3";
 const char* password = "12345678";
 
 // === Global Objects ===
