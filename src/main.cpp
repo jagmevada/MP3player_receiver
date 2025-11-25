@@ -28,9 +28,14 @@ static const unsigned long FRAME_TIMEOUT = 36000UL; // from SYNC rising
 // const uint32_t  KEY3   = 0x7a7a7a70;    
 // const uint32_t  KEY1   = 0x8b8b8b80; 
 
-const uint32_t  KEY2   = 0x30303030;     
-const uint32_t  KEY3   = 0x41414140;    
-const uint32_t  KEY1   = 0x52525250;   
+// const uint32_t  KEY2   = 0x30303030;     
+// const uint32_t  KEY3   = 0x41414140;    
+// const uint32_t  KEY1   = 0x52525250;   
+
+const uint32_t  KEY2   = 0x50505050;     
+const uint32_t  KEY3   = 0x61616160;    
+const uint32_t  KEY1   = 0x72726270; 
+
 
 // Optional: treat absurdly long HIGH during frame as noise
 static const unsigned long NOISE_HIGH_REJECT_US = 1500UL;
