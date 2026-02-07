@@ -11,14 +11,14 @@ static const uint8_t RX_PIN = 13; // INT0 on Nano
 
 // Time thresholds (µs)
 static const unsigned long SYNC_MIN_US   = 32000UL;
-static const unsigned long SYNC_MAX_US   = 36000UL;
+static const unsigned long SYNC_MAX_US   = 37000UL;
 static const unsigned long BIT_0_MAX_US  = 400UL;   // HIGH < 350us => 0
-static const unsigned long BIT_1_MIN_US  = 801UL;   // HIGH > 800us => 1
-static const unsigned long FRAME_TIMEOUT = 36000UL; // from SYNC rising
+static const unsigned long BIT_1_MIN_US  = 800UL;   // HIGH > 800us => 1
+static const unsigned long FRAME_TIMEOUT = 37000UL; // from SYNC rising
 
-// const uint32_t  KEY2   = 0xa0a0a0a0;     
-// const uint32_t  KEY3   = 0xb0b0b0b0;    
-// const uint32_t  KEY1   = 0xc0c0c0c0;   
+const uint32_t  KEY2   = 0xa0a0a0a0;     
+const uint32_t  KEY3   = 0xb0b0b0b0;    
+const uint32_t  KEY1   = 0xc0c0c0c0;   
 
 // const uint32_t  KEY2   = 0xa5a5a5a0;     
 // const uint32_t  KEY3   = 0xb5b5b5b0;    
@@ -32,9 +32,9 @@ static const unsigned long FRAME_TIMEOUT = 36000UL; // from SYNC rising
 // const uint32_t  KEY3   = 0x41414140;    
 // const uint32_t  KEY1   = 0x52525250;   
 
-const uint32_t  KEY2   = 0x50505050;     
-const uint32_t  KEY3   = 0x61616160;    
-const uint32_t  KEY1   = 0x72726270; 
+// const uint32_t  KEY2   = 0x50505050;     
+// const uint32_t  KEY3   = 0x61616160;    
+// const uint32_t  KEY1   = 0x72726270; 
 
 
 // Optional: treat absurdly long HIGH during frame as noise
@@ -82,7 +82,7 @@ volatile unsigned long lastInterruptTime[3] = {0, 0, 0};
 #define I2S_LRC  10//12
 
 // === Wi-Fi AP Credentials ===
-const char* ssid = "MP3Player3";
+const char* ssid = "MP3Player1";
 const char* password = "12345678";
 
 // === Global Objects ===
